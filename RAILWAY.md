@@ -1,5 +1,140 @@
 # Railway デプロイ手順
 
+## 0. Variables をコピペで一括設定する
+
+Railway のサービス → **Variables** → **Bulk Edit**（または **Raw Editor**）を開き、以下をそのまま貼り付ける。  
+貼り付けたあと、**`APP_KEY`** と **`APP_URL`** だけ実際の値に書き換える。
+
+### コピペ用（PostgreSQL を使う場合）
+
+```
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://あなたのサービス.up.railway.app
+APP_KEY=base64:ここにphp artisan key:generate --showの結果を貼る
+APP_NAME=UserManagementSystem
+LOG_LEVEL=warning
+DB_CONNECTION=pgsql
+SESSION_DRIVER=file
+CACHE_STORE=file
+QUEUE_CONNECTION=sync
+```
+
+**注意:** `DB_URL` は Variables 画面で **Add Variable Reference** から PostgreSQL の `DATABASE_URL` を選び、変数名を **DB_URL** にして追加する（コピペでは参照できないため）。
+
+### コピペ用（SQLite を使う場合）
+
+```
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://あなたのサービス.up.railway.app
+APP_KEY=base64:ここにphp artisan key:generate --showの結果を貼る
+APP_NAME=UserManagementSystem
+LOG_LEVEL=warning
+DB_CONNECTION=sqlite
+SESSION_DRIVER=file
+CACHE_STORE=file
+QUEUE_CONNECTION=sync
+```
+
+**SQLite の注意:** コンテナの再デプロイでファイルが消えます。データを残したい場合は下の「SQLite + Volume」を設定してください。
+
+### コピペ用（DB なし・後で DB を追加する場合）
+
+```
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://あなたのサービス.up.railway.app
+APP_KEY=base64:ここにphp artisan key:generate --showの結果を貼る
+APP_NAME=UserManagementSystem
+LOG_LEVEL=warning
+SESSION_DRIVER=file
+CACHE_STORE=file
+QUEUE_CONNECTION=sync
+```
+
+---
+
+## SQLite + Volume（データを永続化する）
+
+SQLite のファイルを **Volume** に置くと、再デプロイしてもデータが残ります。
+
+1. Railway のサービス → **Variables** で次を追加する（Volume のマウントパスに合わせる）:
+   - `DB_DATABASE=/data/database.sqlite`  
+     （Volume を `/data` にマウントする場合）
+2. 同じサービスで **Settings** → **Volumes** → **Add Volume** で Volume を追加し、**Mount Path** を `/data` にする。
+3. **Variables** に `DB_DATABASE=/data/database.sqlite` を追加する（Volume を使う場合は必須）。
+4. 初回デプロイ後、**Railway CLI** で SQLite ファイルを作成してからマイグレーションする:
+   **SQLite のファイルは Railway のサーバー上の Volume に作る必要があります。**  
+   方法は次のどちらかです。
+
+   - **方法A（おすすめ）**  
+     起動時にサーバー上でファイル作成＋マイグレーションするようにする。  
+     Railway のサービス → **Settings** → **Deploy** の **Start Command** を次のようにする:
+     ```bash
+     bash -c "touch /data/database.sqlite 2>/dev/null; php artisan migrate --force; exec php artisan serve --host=0.0.0.0 --port=$PORT"
+     ```
+     （初回起動で `/data/database.sqlite` ができ、そのあと migrate と serve が動く）
+   - **方法B**  
+     PostgreSQL など、ローカルから接続できる DB のときは「Railway CLI でコマンドを実行する」の `railway run` が使える。  
+     SQLite + Volume の場合は Volume がサーバー側だけなので、**方法A** を使う。
+
+---
+
+## Railway CLI でコマンドを実行する
+
+`railway run ...` を実行するまでの流れ。
+
+### 1. Railway CLI を入れる
+
+- **macOS（Homebrew）**
+  ```bash
+  brew install railway
+  ```
+- **npm**
+  ```bash
+  npm i -g @railway/cli
+  ```
+- その他: [https://docs.railway.com/develop/cli](https://docs.railway.com/develop/cli)
+
+### 2. ログイン
+
+```bash
+railway login
+```
+
+ブラウザが開くので、Railway アカウントで認証する。
+
+### 3. プロジェクトとサービスを紐づける
+
+**この Laravel プロジェクトのディレクトリ**で実行する。
+
+```bash
+cd /path/to/Laravel-Practice5-UserManagementSystem-Portfolio
+railway link
+```
+
+表示に従って、**Project** と **Service**（デプロイした Laravel のサービス）を選ぶ。  
+すでに `railway.json` や `.railway` がある場合はスキップしてよい。
+
+### 4. コマンドを実行する
+
+同じディレクトリのまま:
+
+```bash
+railway run bash -c "touch /data/database.sqlite && php artisan migrate --force"
+```
+
+- SQLite を Volume で使う場合の**初回**は上記（ファイル作成＋マイグレーション）。
+- 2回目以降のマイグレーションだけなら:
+  ```bash
+  railway run php artisan migrate --force
+  ```
+
+`railway run` は、Railway のそのサービスに設定されている **Variables** を自分の PC に渡して、**ローカル**でコマンドを実行します。**PostgreSQL** ならローカルから Railway の DB に接続できるので、`railway run php artisan migrate --force` でマイグレーションできます。**SQLite + Volume** の場合は Volume がサーバー側にしかないので、上記「方法A」で Start Command に書く方がよいです。
+
+---
+
 ## 1. Variables（環境変数）に設定するもの
 
 Railway のサービス → **Variables** で以下を追加する。
